@@ -207,8 +207,8 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
             Start = ToGraphDateTimeTimeZone(item.Start),
             End = ToGraphDateTimeTimeZone(item.End),
             IsAllDay = item.IsAllDay,
-            ShowAs = MapShowAs(item.ShowAs),
-            Sensitivity = MapSensitivity(item.Sensitivity),
+            ShowAs = GraphShowAsMapper.ToGraph(item.ShowAs),
+            Sensitivity = GraphShowAsMapper.ToGraphSensitivity(item.Sensitivity),
             IsReminderOn = item.ReminderEnabled,
             Categories = new List<string> { item.Category },
             SingleValueExtendedProperties = new List<SingleValueLegacyExtendedProperty>
@@ -245,7 +245,7 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
             End: FromGraphDateTimeTimeZone(graphEvent.End),
             IsAllDay: graphEvent.IsAllDay ?? false,
             Category: graphEvent.Categories?.FirstOrDefault(),
-            ShowAs: MapShowAsFromGraph(graphEvent.ShowAs),
+            ShowAs: GraphShowAsMapper.FromGraph(graphEvent.ShowAs),
             SourceFingerprint: fingerprint,
             LastModifiedUtc: graphEvent.LastModifiedDateTime);
     }
@@ -356,32 +356,6 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
         var offset = zone.GetUtcOffset(localDateTime);
         return new DateTimeOffset(localDateTime, offset);
     }
-
-    private static FreeBusyStatus MapShowAs(CalendarShowAs showAs) => showAs switch
-    {
-        CalendarShowAs.Free => FreeBusyStatus.Free,
-        CalendarShowAs.Tentative => FreeBusyStatus.Tentative,
-        CalendarShowAs.Busy => FreeBusyStatus.Busy,
-        CalendarShowAs.OutOfOffice => FreeBusyStatus.Oof,
-        CalendarShowAs.WorkingElsewhere => FreeBusyStatus.WorkingElsewhere,
-        _ => FreeBusyStatus.Unknown,
-    };
-
-    private static CalendarShowAs MapShowAsFromGraph(FreeBusyStatus? showAs) => showAs switch
-    {
-        FreeBusyStatus.Free => CalendarShowAs.Free,
-        FreeBusyStatus.Tentative => CalendarShowAs.Tentative,
-        FreeBusyStatus.Busy => CalendarShowAs.Busy,
-        FreeBusyStatus.Oof => CalendarShowAs.OutOfOffice,
-        FreeBusyStatus.WorkingElsewhere => CalendarShowAs.WorkingElsewhere,
-        _ => CalendarShowAs.Busy,
-    };
-
-    private static Sensitivity MapSensitivity(CalendarSensitivity sensitivity) => sensitivity switch
-    {
-        CalendarSensitivity.Private => Sensitivity.Private,
-        _ => Sensitivity.Normal,
-    };
 
     private static string DescribeError(ODataError error) => error.Error?.Message ?? error.Message;
 }

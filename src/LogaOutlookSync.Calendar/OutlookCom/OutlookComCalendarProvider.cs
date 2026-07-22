@@ -289,8 +289,8 @@ public sealed class OutlookComCalendarProvider : ICalendarProvider
         appointment.AllDayEvent = item.IsAllDay;
         appointment.Start = item.Start.LocalDateTime;
         appointment.End = item.End.LocalDateTime;
-        appointment.BusyStatus = MapBusyStatus(item.ShowAs);
-        appointment.Sensitivity = MapSensitivity(item.Sensitivity);
+        appointment.BusyStatus = OutlookBusyStatusMapper.ToOutlook(item.ShowAs);
+        appointment.Sensitivity = OutlookBusyStatusMapper.ToOutlookSensitivity(item.Sensitivity);
         appointment.ReminderSet = item.ReminderEnabled;
         appointment.Categories = item.Category;
 
@@ -325,7 +325,7 @@ public sealed class OutlookComCalendarProvider : ICalendarProvider
             End: new DateTimeOffset(appointment.End, localZone.GetUtcOffset(appointment.End)),
             IsAllDay: appointment.AllDayEvent,
             Category: appointment.Categories,
-            ShowAs: MapBusyStatusFromOutlook(appointment.BusyStatus),
+            ShowAs: OutlookBusyStatusMapper.FromOutlook(appointment.BusyStatus),
             SourceFingerprint: fingerprint,
             LastModifiedUtc: appointment.LastModificationTime == default
                 ? null
@@ -443,29 +443,4 @@ public sealed class OutlookComCalendarProvider : ICalendarProvider
         }
     }
 
-    private static Outlook.OlBusyStatus MapBusyStatus(CalendarShowAs showAs) => showAs switch
-    {
-        CalendarShowAs.Free => Outlook.OlBusyStatus.olFree,
-        CalendarShowAs.Tentative => Outlook.OlBusyStatus.olTentative,
-        CalendarShowAs.Busy => Outlook.OlBusyStatus.olBusy,
-        CalendarShowAs.OutOfOffice => Outlook.OlBusyStatus.olOutOfOffice,
-        CalendarShowAs.WorkingElsewhere => Outlook.OlBusyStatus.olWorkingElsewhere,
-        _ => Outlook.OlBusyStatus.olBusy,
-    };
-
-    private static CalendarShowAs MapBusyStatusFromOutlook(Outlook.OlBusyStatus status) => status switch
-    {
-        Outlook.OlBusyStatus.olFree => CalendarShowAs.Free,
-        Outlook.OlBusyStatus.olTentative => CalendarShowAs.Tentative,
-        Outlook.OlBusyStatus.olBusy => CalendarShowAs.Busy,
-        Outlook.OlBusyStatus.olOutOfOffice => CalendarShowAs.OutOfOffice,
-        Outlook.OlBusyStatus.olWorkingElsewhere => CalendarShowAs.WorkingElsewhere,
-        _ => CalendarShowAs.Busy,
-    };
-
-    private static Outlook.OlSensitivity MapSensitivity(CalendarSensitivity sensitivity) => sensitivity switch
-    {
-        CalendarSensitivity.Private => Outlook.OlSensitivity.olPrivate,
-        _ => Outlook.OlSensitivity.olNormal,
-    };
 }
