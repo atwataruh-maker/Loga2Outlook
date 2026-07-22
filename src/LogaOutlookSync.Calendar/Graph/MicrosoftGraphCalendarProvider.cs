@@ -26,7 +26,9 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
     private readonly AppSettings _settings;
     private readonly ILogger<MicrosoftGraphCalendarProvider> _logger;
     private readonly SemaphoreSlim _clientLock = new(1, 1);
+    private readonly SemaphoreSlim _calendarIdLock = new(1, 1);
     private GraphServiceClient? _client;
+    private string? _resolvedDefaultCalendarId;
 
     public MicrosoftGraphCalendarProvider(AppSettings settings, ILogger<MicrosoftGraphCalendarProvider> logger)
     {
@@ -40,11 +42,12 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
         CancellationToken cancellationToken)
     {
         var client = await GetClientAsync(cancellationToken).ConfigureAwait(false);
+        var calendarId = await ResolveCalendarIdAsync(client, cancellationToken).ConfigureAwait(false);
 
         EventCollectionResponse? page;
         try
         {
-            page = await GetCalendarViewBuilder(client).GetAsync(cfg =>
+            page = await GetCalendarViewBuilder(client, calendarId).GetAsync(cfg =>
             {
                 cfg.QueryParameters.StartDateTime = from.UtcDateTime.ToString("o", CultureInfo.InvariantCulture);
                 cfg.QueryParameters.EndDateTime = to.UtcDateTime.ToString("o", CultureInfo.InvariantCulture);
@@ -86,12 +89,13 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
     public async Task<CalendarWriteResult> CreateAsync(CalendarSyncItem item, CancellationToken cancellationToken)
     {
         var client = await GetClientAsync(cancellationToken).ConfigureAwait(false);
+        var calendarId = await ResolveCalendarIdAsync(client, cancellationToken).ConfigureAwait(false);
         var graphEvent = BuildGraphEvent(item);
 
         Event created;
         try
         {
-            created = await GetEventsBuilder(client).PostAsync(graphEvent, cancellationToken: cancellationToken)
+            created = await GetEventsBuilder(client, calendarId).PostAsync(graphEvent, cancellationToken: cancellationToken)
                 .ConfigureAwait(false)
                 ?? throw new GraphCalendarException("Microsoft Graph hat beim Anlegen des Termins keine Antwort geliefert.");
         }
@@ -101,7 +105,7 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
         }
 
         _logger.LogInformation("Termin '{Subject}' in Microsoft Graph angelegt (SyncId {SyncId}).", item.Subject, item.SyncId);
-        return await VerifyShowAsAsync(client, created.Id!, cancellationToken).ConfigureAwait(false);
+        return await VerifyShowAsAsync(client, calendarId, created.Id!, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<CalendarWriteResult> UpdateAsync(CalendarSyncItem item, CancellationToken cancellationToken)
@@ -113,11 +117,12 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
         }
 
         var client = await GetClientAsync(cancellationToken).ConfigureAwait(false);
+        var calendarId = await ResolveCalendarIdAsync(client, cancellationToken).ConfigureAwait(false);
         var graphEvent = BuildGraphEvent(item);
 
         try
         {
-            await GetEventsBuilder(client)[item.ExistingCalendarEntryId]
+            await GetEventsBuilder(client, calendarId)[item.ExistingCalendarEntryId]
                 .PatchAsync(graphEvent, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -128,7 +133,7 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
         }
 
         _logger.LogInformation("Termin '{Subject}' in Microsoft Graph aktualisiert (SyncId {SyncId}).", item.Subject, item.SyncId);
-        return await VerifyShowAsAsync(client, item.ExistingCalendarEntryId, cancellationToken).ConfigureAwait(false);
+        return await VerifyShowAsAsync(client, calendarId, item.ExistingCalendarEntryId, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<CalendarDescriptor>> ListCalendarsAsync(CancellationToken cancellationToken)
@@ -159,10 +164,11 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
     public async Task DeleteAsync(string calendarEntryId, CancellationToken cancellationToken)
     {
         var client = await GetClientAsync(cancellationToken).ConfigureAwait(false);
+        var calendarId = await ResolveCalendarIdAsync(client, cancellationToken).ConfigureAwait(false);
 
         try
         {
-            await GetEventsBuilder(client)[calendarEntryId].DeleteAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            await GetEventsBuilder(client, calendarId)[calendarEntryId].DeleteAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         }
         catch (ODataError ex)
         {
@@ -173,11 +179,11 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
         _logger.LogInformation("Termin '{EntryId}' in Microsoft Graph gelöscht.", calendarEntryId);
     }
 
-    private async Task<CalendarWriteResult> VerifyShowAsAsync(GraphServiceClient client, string eventId, CancellationToken cancellationToken)
+    private async Task<CalendarWriteResult> VerifyShowAsAsync(GraphServiceClient client, string calendarId, string eventId, CancellationToken cancellationToken)
     {
         try
         {
-            var fetched = await GetEventsBuilder(client)[eventId]
+            var fetched = await GetEventsBuilder(client, calendarId)[eventId]
                 .GetAsync(cfg => cfg.QueryParameters.Select = new[] { "showAs" }, cancellationToken)
                 .ConfigureAwait(false);
 
@@ -250,18 +256,66 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
             LastModifiedUtc: graphEvent.LastModifiedDateTime);
     }
 
-    private Microsoft.Graph.Me.Calendar.CalendarView.CalendarViewRequestBuilder GetCalendarViewBuilder(GraphServiceClient client)
+    /// <summary>
+    /// Ermittelt die konkrete Graph-Kalender-ID, mit der ab hier ausschließlich weitergearbeitet
+    /// wird. Ist in den Einstellungen keine <c>TargetCalendarId</c> hinterlegt, wird einmalig die
+    /// ID des Standardkalenders (<c>/me/calendar</c>) aufgelöst und zwischengespeichert. Dadurch
+    /// wird konsequent nur der eine Request-Builder-Typ <c>Me.Calendars[id]...</c> verwendet -
+    /// <c>Me.Calendar...</c> und <c>Me.Calendars[id]...</c> erzeugen bei Kiota unterschiedliche,
+    /// nicht zueinander kompatible generierte Typen.
+    /// </summary>
+    private async Task<string> ResolveCalendarIdAsync(GraphServiceClient client, CancellationToken cancellationToken)
     {
-        return string.IsNullOrEmpty(_settings.TargetCalendarId)
-            ? client.Me.Calendar.CalendarView
-            : client.Me.Calendars[_settings.TargetCalendarId].CalendarView;
+        if (!string.IsNullOrEmpty(_settings.TargetCalendarId))
+        {
+            return _settings.TargetCalendarId;
+        }
+
+        if (_resolvedDefaultCalendarId is not null)
+        {
+            return _resolvedDefaultCalendarId;
+        }
+
+        await _calendarIdLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_resolvedDefaultCalendarId is not null)
+            {
+                return _resolvedDefaultCalendarId;
+            }
+
+            Calendar? defaultCalendar;
+            try
+            {
+                defaultCalendar = await client.Me.Calendar
+                    .GetAsync(cfg => cfg.QueryParameters.Select = new[] { "id" }, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (ODataError ex)
+            {
+                throw new GraphCalendarException($"Der Standardkalender konnte nicht ermittelt werden: {DescribeError(ex)}", ex);
+            }
+
+            _resolvedDefaultCalendarId = defaultCalendar?.Id
+                ?? throw new GraphCalendarException("Microsoft Graph hat keine ID für den Standardkalender geliefert.");
+            return _resolvedDefaultCalendarId;
+        }
+        finally
+        {
+            _calendarIdLock.Release();
+        }
     }
 
-    private Microsoft.Graph.Me.Calendar.Events.EventsRequestBuilder GetEventsBuilder(GraphServiceClient client)
+    private static Microsoft.Graph.Me.Calendars.Item.CalendarView.CalendarViewRequestBuilder GetCalendarViewBuilder(
+        GraphServiceClient client, string calendarId)
     {
-        return string.IsNullOrEmpty(_settings.TargetCalendarId)
-            ? client.Me.Calendar.Events
-            : client.Me.Calendars[_settings.TargetCalendarId].Events;
+        return client.Me.Calendars[calendarId].CalendarView;
+    }
+
+    private static Microsoft.Graph.Me.Calendars.Item.Events.EventsRequestBuilder GetEventsBuilder(
+        GraphServiceClient client, string calendarId)
+    {
+        return client.Me.Calendars[calendarId].Events;
     }
 
     private async Task<GraphServiceClient> GetClientAsync(CancellationToken cancellationToken)

@@ -110,7 +110,7 @@ public sealed class OutlookComCalendarProvider : ICalendarProvider
             {
                 var items = folder.Items;
                 items.IncludeRecurrences = false;
-                items.Sort("[Start]", Type: false);
+                items.Sort("[Start]", false);
 
                 var filter = string.Format(
                     CultureInfo.InvariantCulture,
@@ -412,11 +412,11 @@ public sealed class OutlookComCalendarProvider : ICalendarProvider
     private static (Outlook.Application Application, Outlook.NameSpace Namespace) GetOrCreateApplication()
     {
         Outlook.Application application;
-        try
+        if (RunningObjectTable.TryGetActiveObject("Outlook.Application", out var activeObject) && activeObject is Outlook.Application activeApplication)
         {
-            application = (Outlook.Application)Marshal.GetActiveObject("Outlook.Application");
+            application = activeApplication;
         }
-        catch (COMException)
+        else
         {
             try
             {
