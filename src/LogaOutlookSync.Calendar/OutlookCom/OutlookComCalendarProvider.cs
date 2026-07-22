@@ -57,6 +57,49 @@ public sealed class OutlookComCalendarProvider : ICalendarProvider
         });
     }
 
+    public Task<IReadOnlyList<CalendarDescriptor>> ListCalendarsAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return StaThread.RunAsync(ListCalendarsCore);
+    }
+
+    private static IReadOnlyList<CalendarDescriptor> ListCalendarsCore()
+    {
+        var (app, ns) = GetOrCreateApplication();
+        try
+        {
+            var defaultCalendar = ns.GetDefaultFolder(Outlook.OlDefaultFolders.olFolderCalendar);
+            try
+            {
+                var result = new List<CalendarDescriptor> { new(defaultCalendar.Name, defaultCalendar.Name, IsDefault: true) };
+
+                foreach (var rawSubFolder in defaultCalendar.Folders)
+                {
+                    if (rawSubFolder is Outlook.MAPIFolder subFolder)
+                    {
+                        result.Add(new CalendarDescriptor(subFolder.Name, subFolder.Name, IsDefault: false));
+                        Marshal.ReleaseComObject(subFolder);
+                    }
+                }
+
+                return result;
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(defaultCalendar);
+            }
+        }
+        catch (COMException ex)
+        {
+            throw new OutlookComException($"Die verfügbaren Outlook-Kalenderordner konnten nicht gelesen werden: {ex.Message}", ex);
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(ns);
+            Marshal.ReleaseComObject(app);
+        }
+    }
+
     private IReadOnlyList<ManagedCalendarEntry> GetManagedEntriesCore(DateTimeOffset from, DateTimeOffset to)
     {
         var (app, ns) = GetOrCreateApplication();

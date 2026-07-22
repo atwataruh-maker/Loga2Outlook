@@ -1,0 +1,105 @@
+<UserControl x:Class="LogaOutlookSync.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="4" MaxWidth="720" HorizontalAlignment="Stretch">
+            <TextBlock Text="Einstellungen" Style="{StaticResource HeaderTextStyle}" />
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="LOGA-Zugang" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                    <TextBlock Text="LOGA-Webadresse" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding LogaBaseUrl, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Benutzername" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding LogaUserName, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Passwort ändern (leer lassen, um das bestehende Passwort beizubehalten)" Style="{StaticResource LabelTextStyle}" />
+                    <PasswordBox x:Name="LogaPasswordBox" PasswordChanged="OnLogaPasswordChanged" />
+
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button Content="LOGA-Anmeldung testen" Style="{StaticResource SecondaryButton}" Command="{Binding TestLogaLoginCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Kalenderanbindung" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                    <TextBlock Text="Bevorzugte Anbindung" Style="{StaticResource LabelTextStyle}" />
+                    <ComboBox ItemsSource="{Binding CalendarProviderOptions}" SelectedItem="{Binding CalendarProvider}" />
+
+                    <TextBlock Text="Entra-ID-App-Registrierung (Client-ID, für Microsoft Graph)" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding GraphClientId, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Entra-ID-Mandant (Tenant-ID/-Domäne, 'organizations' oder 'common')" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding GraphTenantId, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button Content="Outlook-Verbindung testen" Style="{StaticResource SecondaryButton}" Command="{Binding TestOutlookConnectionCommand}" />
+                        <Button Content="Verfügbare Kalender anzeigen" Style="{StaticResource SecondaryButton}" Command="{Binding ShowAvailableCalendarsCommand}" />
+                    </StackPanel>
+
+                    <TextBlock Text="Verfügbare Kalender" Style="{StaticResource LabelTextStyle}" />
+                    <ComboBox ItemsSource="{Binding AvailableCalendars}" DisplayMemberPath="DisplayName"
+                              SelectedValuePath="Id" SelectedValue="{Binding TargetCalendarId}" />
+
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                        <Button Content="Ausgewählten Kalender testen" Style="{StaticResource SecondaryButton}" Command="{Binding TestSelectedCalendarCommand}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Synchronisation" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                    <CheckBox Content="Browser während der Synchronisation sichtbar (Debug-Modus)" IsChecked="{Binding BrowserVisible}" Margin="0,4" />
+
+                    <TextBlock Text="Tage in der Vergangenheit" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding SyncPastDays, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Monate in der Zukunft" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding SyncFutureMonths, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Löschverhalten bei stornierten LOGA-Einträgen" Style="{StaticResource LabelTextStyle}" />
+                    <ComboBox ItemsSource="{Binding DeletionPolicyOptions}" SelectedItem="{Binding DeletionPolicy}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Terminbezeichnungen und Kategorien" FontWeight="SemiBold" Margin="0,0,0,8" />
+
+                    <TextBlock Text="Optionaler Präfix für Outlook-Terminbetreffs" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding SubjectPrefix, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <CheckBox Content="Zusatz '(LOGA)' an den Betreff anhängen" IsChecked="{Binding AppendLogaSuffixToSubject}" Margin="0,8" />
+
+                    <TextBlock Text="Betreff Urlaub" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding VacationSubject, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Kategorie Urlaub" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding VacationCategory, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Betreff Gleitzeit" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding FlexTimeSubject, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Kategorie Gleitzeit" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding FlexTimeCategory, UpdateSourceTrigger=PropertyChanged}" />
+
+                    <TextBlock Text="Aufbewahrungsdauer der Protokolldateien (Tage)" Style="{StaticResource LabelTextStyle}" />
+                    <TextBox Text="{Binding LogRetentionDays, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Margin="0,4,0,16">
+                <Button Content="Einstellungen speichern" Command="{Binding SaveCommand}" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" Margin="0,0,0,24" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

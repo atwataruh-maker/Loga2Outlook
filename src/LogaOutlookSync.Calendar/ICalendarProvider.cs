@@ -33,4 +33,10 @@ public interface ICalendarProvider
 
     /// <summary>Löscht einen Termin anhand seiner providerinternen ID.</summary>
     Task DeleteAsync(string calendarEntryId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Listet die für den Benutzer verfügbaren Kalender auf. Wird vom Einrichtungsassistenten
+    /// für die Kalenderauswahl ("verfügbare Kalender anzeigen") verwendet.
+    /// </summary>
+    Task<IReadOnlyList<CalendarDescriptor>> ListCalendarsAsync(CancellationToken cancellationToken);
 }

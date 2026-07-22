@@ -131,6 +131,31 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
         return await VerifyShowAsAsync(client, item.ExistingCalendarEntryId, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<CalendarDescriptor>> ListCalendarsAsync(CancellationToken cancellationToken)
+    {
+        var client = await GetClientAsync(cancellationToken).ConfigureAwait(false);
+
+        CalendarCollectionResponse? response;
+        try
+        {
+            response = await client.Me.Calendars.GetAsync(cfg =>
+            {
+                cfg.QueryParameters.Select = new[] { "id", "name", "isDefaultCalendar" };
+                cfg.QueryParameters.Top = 100;
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ODataError ex)
+        {
+            throw new GraphCalendarException($"Die verfügbaren Kalender konnten nicht von Microsoft Graph gelesen werden: {DescribeError(ex)}", ex);
+        }
+
+        return response?.Value?
+            .Where(c => c.Id is not null)
+            .Select(c => new CalendarDescriptor(c.Id!, c.Name ?? c.Id!, c.IsDefaultCalendar ?? false))
+            .ToList()
+            ?? new List<CalendarDescriptor>();
+    }
+
     public async Task DeleteAsync(string calendarEntryId, CancellationToken cancellationToken)
     {
         var client = await GetClientAsync(cancellationToken).ConfigureAwait(false);

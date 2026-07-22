@@ -1,0 +1,24 @@
+<Window x:Class="LogaOutlookSync.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="LOGA Outlook Sync"
+        Height="720" Width="1080"
+        MinHeight="560" MinWidth="820"
+        Background="{StaticResource BackgroundBrush}">
+    <Grid Margin="16">
+        <TabControl x:Name="MainTabControl" Background="Transparent" BorderThickness="0">
+            <TabItem Header="Dashboard">
+                <ContentControl x:Name="DashboardHost" />
+            </TabItem>
+            <TabItem Header="Synchronisation">
+                <ContentControl x:Name="SyncHost" />
+            </TabItem>
+            <TabItem Header="Einstellungen">
+                <ContentControl x:Name="SettingsHost" />
+            </TabItem>
+            <TabItem Header="Protokoll">
+                <ContentControl x:Name="LogHost" />
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>
