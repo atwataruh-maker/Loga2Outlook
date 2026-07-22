@@ -22,13 +22,12 @@
     keinerlei Abhaengigkeit dazu.
 
     .NOTES
-    WICHTIG: Der Abschnitt "LOGA-Kalender auslesen" berechnet das Datum eines Eintrags aus
-    seiner Pixel-Position in der Wochenansicht (siehe Kommentar bei
-    Get-LogaUrlaubsEintraegeDerAngezeigtenWoche weiter unten) - LOGA liefert das Datum nicht
-    als Attribut. Aktuell wird nur die nach dem Login angezeigte Woche gelesen, keine
-    automatische Wochennavigation. Mit -WhatIf laesst sich das Skript gefahrlos testen,
-    ohne Outlook-Termine zu veraendern; die erkannten Zeitraeume werden dabei trotzdem
-    immer angezeigt, damit man sie gegen den Browser pruefen kann.
+    Der Abschnitt "LOGA-Kalender auslesen" klickt jeden Urlaubsbalken einzeln an - das
+    oeffnet ein Popup mit den exakten Feldern "Anfangsdatum"/"Endedatum" (siehe Kommentar
+    bei Get-LogaUrlaubsEintraege weiter unten). Aktuell wird nur die nach dem Login
+    angezeigte Woche gelesen, keine automatische Wochennavigation. Mit -WhatIf laesst
+    sich das Skript gefahrlos testen, ohne Outlook-Termine zu veraendern; die erkannten
+    Zeitraeume werden dabei trotzdem immer angezeigt.
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -69,16 +68,17 @@ $LogaSelectors = @{
     EingeloggtIndikator = "//*[contains(text(),'Kalendarium')]"
 
     # Der ganztaegige Kalendereintrag (bestaetigt per "Copy outerHTML"):
-    #   <div class="personalWeek-alldayEvent ..." data-cache-id="..." title="Tarifurlaub" ...
-    #        style="...left: 306px; right: 162px;">
+    #   <div class="personalWeek-alldayEvent ..." data-cache-id="..." title="Tarifurlaub" ...>
     #     <div class="personalWeek-alldayEvent-eventTitle">Tarifurlaub</div>
     #   </div>
     GanztagEintrag = "div.personalWeek-alldayEvent"
 
-    # Container, dessen Breite die volle 7-Tage-Woche (Montag-Sonntag) abbildet. Die
-    # left/right-Werte der Eintraege sind relativ zu diesem Element zu verstehen (naechster
-    # Vorfahre mit position:relative laut DOM-Struktur). NICHT abschliessend bestaetigt.
-    WochenBreiteContainer = "div.personalWeek-scrollableAlldayEventsArea > div"
+    # Ein Klick auf den Eintrag oeffnet ein Popup mit "Anfangsdatum"/"Endedatum". Bestaetigt
+    # per DevTools: <input name="vacationHalfDayServerMaskPart-startDate" ... value="23.07.2026">
+    # Ueber "endet mit" (-startDate/-endDate) statt des vollen Namens, falls der Praefix bei
+    # anderen Abwesenheitsarten abweicht.
+    PopupAnfangsdatum = "input[name`$='-startDate']"
+    PopupEndedatum    = "input[name`$='-endDate']"
 }
 
 # ============================================================================
@@ -87,25 +87,26 @@ $LogaSelectors = @{
 
 # Einfache Warteschleife statt WebDriverWait.Until(...): vermeidet die in PowerShell
 # manchmal unzuverlaessige automatische Umwandlung von Scriptblocks in .NET-Delegaten
-# und ist so leichter nachvollziehbar/debuggbar.
-function Wait-SeElementByXPath {
+# und ist so leichter nachvollziehbar/debuggbar. $By ist z. B.
+# [OpenQA.Selenium.By]::XPath("...") oder [OpenQA.Selenium.By]::CssSelector("...").
+function Wait-SeElement {
     param(
         [Parameter(Mandatory)] $Driver,
-        [Parameter(Mandatory)] [string]$XPath,
+        [Parameter(Mandatory)] $By,
         [int]$TimeoutSeconds = 15
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
         try {
-            return $Driver.FindElement([OpenQA.Selenium.By]::XPath($XPath))
+            return $Driver.FindElement($By)
         }
         catch [OpenQA.Selenium.NoSuchElementException] {
-            Start-Sleep -Milliseconds 500
+            Start-Sleep -Milliseconds 300
         }
     } while ((Get-Date) -lt $deadline)
 
-    throw "Element mit XPath '$XPath' wurde nach $TimeoutSeconds Sekunden nicht gefunden. " +
+    throw "Element '$By' wurde nach $TimeoutSeconds Sekunden nicht gefunden. " +
         "Die LOGA-Seitenstruktur hat sich moeglicherweise geaendert."
 }
 
@@ -132,7 +133,7 @@ function Connect-Loga {
     try {
         $driver.Navigate().GoToUrl($LogaLoginUrl)
 
-        $usernameField = Wait-SeElementByXPath -Driver $driver -XPath $LogaSelectors.BenutzernameFeld
+        $usernameField = Wait-SeElement -Driver $driver -By ([OpenQA.Selenium.By]::XPath($LogaSelectors.BenutzernameFeld))
         $passwordField = $driver.FindElement([OpenQA.Selenium.By]::XPath($LogaSelectors.PasswortFeld))
 
         $usernameField.SendKeys($Credential.UserName)
@@ -140,7 +141,7 @@ function Connect-Loga {
 
         $driver.FindElement([OpenQA.Selenium.By]::XPath($LogaSelectors.AnmeldenButton)).Click()
 
-        Wait-SeElementByXPath -Driver $driver -XPath $LogaSelectors.EingeloggtIndikator | Out-Null
+        Wait-SeElement -Driver $driver -By ([OpenQA.Selenium.By]::XPath($LogaSelectors.EingeloggtIndikator)) | Out-Null
     }
     catch {
         $driver.Quit()
@@ -155,45 +156,30 @@ function Connect-Loga {
 #
 #    Bestaetigt per "Copy outerHTML" aus den Browser-DevTools:
 #        <div class="personalWeek-alldayEvent ..." data-cache-id="1e38e3d9..." title="Tarifurlaub"
-#             role="button" aria-label="Tarifurlaub"
-#             style="...; top: 3px; left: 306px; right: 162px;">
+#             role="button" aria-label="Tarifurlaub" ...>
 #          <div class="personalWeek-alldayEvent-eventTitle">Tarifurlaub</div>
 #        </div>
 #
-#    WICHTIGE EINSCHRAENKUNG: Dieses LOGA-Kalenderwidget (GWT-basiert, erkennbar an
-#    "gwt-InlineHTML") legt das Datum eines Eintrags NICHT in einem Attribut ab, sondern
-#    ausschliesslich ueber die Pixel-Position (links/rechts) relativ zur sichtbaren
-#    7-Tage-Woche (Montag bis Sonntag). "data-cache-id" ist zwar eine stabile, eindeutige
-#    Kennung fuer Duplikat-Erkennung, enthaelt aber selbst kein Datum.
+#    Ein Klick auf diesen Balken oeffnet ein Popup mit exaktem "Anfangsdatum"/"Endedatum"
+#    (bestaetigt per Screenshot: Eingabefeld mit
+#    name="vacationHalfDayServerMaskPart-startDate", Wert "23.07.2026"). Das ist die
+#    zuverlaessigste Datenquelle, die wir bisher kennen - kein Rechnen mit Pixel-Positionen
+#    noetig. Ablauf pro Eintrag: anklicken, Popup abwarten, beide Datumsfelder auslesen,
+#    Popup mit ESC wieder schliessen, weiter zum naechsten Eintrag.
 #
-#    Diese Funktion berechnet das Datum daher aus der Position: Sie liest die Breite des
-#    Wochen-Containers (siehe $LogaSelectors.WochenBreiteContainer), teilt sie durch 7 und
-#    ordnet jeden Eintrag anhand seiner Position dem entsprechenden Wochentag zu. Das
-#    Ergebnis wird IMMER ausgegeben (auch bei -WhatIf), damit man es gegen die sichtbare
-#    Kalenderwoche pruefen kann, bevor irgendetwas in Outlook geschrieben wird.
-#
-#    $WochenMontag muss das Datum des Montags der Woche sein, die der Browser GERADE
-#    anzeigt (das Skript liest dieses Datum nicht selbst von der Seite ab, sondern
-#    verwendet den Wert, den der Aufrufer via -Von/-Bis bzw. Wochennavigation vorgibt -
-#    siehe Abschnitt 5).
+#    Alle Attribute des Balkens selbst (Text, data-cache-id) werden VOR dem Klick
+#    ausgelesen, weil GWT nach dem Klick Teile der Seite neu rendern kann und das
+#    urspruengliche Element-Objekt dann ungueltig (stale) werden koennte.
 # ============================================================================
-function Get-LogaUrlaubsEintraegeDerAngezeigtenWoche {
+function Get-LogaUrlaubsEintraege {
     param(
-        [Parameter(Mandatory)] $Driver,
-        [Parameter(Mandatory)] [datetime]$WochenMontag
+        [Parameter(Mandatory)] $Driver
     )
 
-    $container = $Driver.FindElement([OpenQA.Selenium.By]::CssSelector($LogaSelectors.WochenBreiteContainer))
-    $containerLinks = $container.Location.X
-    $containerBreite = $container.Size.Width
-    $spaltenBreite = $containerBreite / 7.0
+    $balken = $Driver.FindElements([OpenQA.Selenium.By]::CssSelector($LogaSelectors.GanztagEintrag))
 
-    Write-Verbose ("Wochen-Container: Breite={0}px, Spaltenbreite={1:N1}px, Montag={2:dd.MM.yyyy}" -f $containerBreite, $spaltenBreite, $WochenMontag)
-
-    $eintraege = @()
-    $elemente = $Driver.FindElements([OpenQA.Selenium.By]::CssSelector($LogaSelectors.GanztagEintrag))
-
-    foreach ($el in $elemente) {
+    $kandidaten = @()
+    foreach ($el in $balken) {
         $text = $el.GetAttribute("title")
         if (-not $text) { $text = $el.GetAttribute("aria-label") }
         if (-not $text) { $text = $el.Text.Trim() }
@@ -205,30 +191,53 @@ function Get-LogaUrlaubsEintraegeDerAngezeigtenWoche {
             continue
         }
 
-        $relativLinks = $el.Location.X - $containerLinks
-        $relativRechts = $relativLinks + $el.Size.Width
+        $kandidaten += [pscustomobject]@{
+            Element = $el
+            Text    = $text
+            SyncId  = $el.GetAttribute("data-cache-id")
+        }
+    }
 
-        # +/- 0.1 Spalten Toleranz gegen Rundungsfehler an den Spaltengrenzen.
-        $startTagIndex = [Math]::Floor(($relativLinks / $spaltenBreite) + 0.1)
-        $endTagIndex = [Math]::Ceiling(($relativRechts / $spaltenBreite) - 0.1) - 1
+    Write-Verbose ("{0} Urlaubsbalken in der aktuell sichtbaren Ansicht gefunden." -f $kandidaten.Count)
 
-        $startTagIndex = [Math]::Max(0, [Math]::Min(6, $startTagIndex))
-        $endTagIndex = [Math]::Max($startTagIndex, [Math]::Min(6, $endTagIndex))
+    $eintraege = @()
+    foreach ($kandidat in $kandidaten) {
+        try {
+            $kandidat.Element.Click()
 
-        $start = $WochenMontag.Date.AddDays($startTagIndex)
-        $ende = $WochenMontag.Date.AddDays($endTagIndex)
+            $startFeld = Wait-SeElement -Driver $Driver -By ([OpenQA.Selenium.By]::CssSelector($LogaSelectors.PopupAnfangsdatum)) -TimeoutSeconds 10
+            $endeFeld = $Driver.FindElement([OpenQA.Selenium.By]::CssSelector($LogaSelectors.PopupEndedatum))
 
-        $syncId = $el.GetAttribute("data-cache-id")
-        if (-not $syncId) { $syncId = "geo_$($start.ToString('yyyyMMdd'))_$($ende.ToString('yyyyMMdd'))_$text" }
+            $startText = $startFeld.GetAttribute("value")
+            $endeText = $endeFeld.GetAttribute("value")
 
-        Write-Verbose ("Gefunden: '{0}' -> links={1}px rechts={2}px -> Tag {3}-{4} -> {5:dd.MM.yyyy}-{6:dd.MM.yyyy}" -f `
-            $text, $relativLinks, $relativRechts, $startTagIndex, $endTagIndex, $start, $ende)
+            $start = [datetime]::ParseExact($startText, "dd.MM.yyyy", [System.Globalization.CultureInfo]::InvariantCulture)
+            $ende = [datetime]::ParseExact($endeText, "dd.MM.yyyy", [System.Globalization.CultureInfo]::InvariantCulture)
 
-        $eintraege += [pscustomobject]@{
-            Start       = $start
-            Ende        = $ende
-            Anzeigetext = $text
-            SyncId      = $syncId
+            $syncId = $kandidat.SyncId
+            if (-not $syncId) { $syncId = "fallback_$($start.ToString('yyyyMMdd'))_$($ende.ToString('yyyyMMdd'))_$($kandidat.Text)" }
+
+            Write-Verbose ("Gefunden: '{0}' -> {1:dd.MM.yyyy} - {2:dd.MM.yyyy} (SyncId: {3})" -f $kandidat.Text, $start, $ende, $syncId)
+
+            $eintraege += [pscustomobject]@{
+                Start       = $start
+                Ende        = $ende
+                Anzeigetext = $kandidat.Text
+                SyncId      = $syncId
+            }
+        }
+        catch {
+            Write-Warning ("Eintrag '{0}' konnte nicht ausgelesen werden: {1}" -f $kandidat.Text, $_.Exception.Message)
+        }
+        finally {
+            # Popup wieder schliessen, bevor der naechste Eintrag angeklickt wird.
+            try {
+                $Driver.FindElement([OpenQA.Selenium.By]::TagName("body")).SendKeys([OpenQA.Selenium.Keys]::Escape)
+                Start-Sleep -Milliseconds 300
+            }
+            catch {
+                # Popup war vermutlich schon geschlossen - ignorieren.
+            }
         }
     }
 
@@ -307,20 +316,16 @@ try {
     # (fuer -SyncPastDays/-SyncFutureDays ueber mehrere Wochen hinweg) ist noch nicht
     # eingebaut, da die Selektoren fuer "naechste/vorherige Woche" noch nicht bestaetigt
     # sind. Dieses Skript liest daher vorerst NUR die Woche, die der Kalender direkt nach
-    # dem Login anzeigt (i. d. R. die aktuelle Woche). $WochenMontag wird aus dem heutigen
-    # Datum berechnet - falls LOGA nach dem Login eine andere Woche zeigt, bitte melden.
+    # dem Login anzeigt (i. d. R. die aktuelle Woche).
     Write-Host "==> Lese Urlaubseintraege der aktuell angezeigten Woche..." -ForegroundColor Cyan
 
-    $heute = (Get-Date).Date
-    $wochenMontag = $heute.AddDays(-(([int]$heute.DayOfWeek + 6) % 7))  # Montag dieser Woche
-
-    $urlaube = Get-LogaUrlaubsEintraegeDerAngezeigtenWoche -Driver $driver -WochenMontag $wochenMontag
+    $urlaube = Get-LogaUrlaubsEintraege -Driver $driver
 
     if ($urlaube.Count -eq 0) {
         Write-Warning "Keine Urlaubseintraege in der aktuell angezeigten Woche gefunden."
     }
     else {
-        Write-Host ("==> {0} Urlaubszeitraum/-zeitraeume gefunden (bitte gegen das im Browser sichtbare Datum pruefen!):" -f $urlaube.Count) -ForegroundColor Cyan
+        Write-Host ("==> {0} Urlaubszeitraum/-zeitraeume gefunden:" -f $urlaube.Count) -ForegroundColor Cyan
         $urlaube | ForEach-Object { Write-Host ("    {0:dd.MM.yyyy} - {1:dd.MM.yyyy}  ({2})  [SyncId: {3}]" -f $_.Start, $_.Ende, $_.Anzeigetext, $_.SyncId) }
     }
 }
