@@ -284,7 +284,7 @@ public sealed class MicrosoftGraphCalendarProvider : ICalendarProvider
                 return _resolvedDefaultCalendarId;
             }
 
-            Calendar? defaultCalendar;
+            Microsoft.Graph.Models.Calendar? defaultCalendar;
             try
             {
                 defaultCalendar = await client.Me.Calendar
