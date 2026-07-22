@@ -30,10 +30,17 @@ oder in einem PowerShell-Fenster in diesem Ordner:
 .\Sync-LogaUrlaub-Outlook.ps1
 ```
 
-Zum gefahrlosen Testen (es werden keine Outlook-Termine angelegt/verändert):
+Zum gefahrlosen Testen (es werden keine Outlook-Termine angelegt/verändert, die
+erkannten Zeiträume werden aber trotzdem angezeigt):
 
 ```powershell
 .\Sync-LogaUrlaub-Outlook.ps1 -WhatIf
+```
+
+Für ausführliche Diagnoseausgaben (Pixel-Positionen, Berechnungsschritte):
+
+```powershell
+.\Sync-LogaUrlaub-Outlook.ps1 -WhatIf -Verbose
 ```
 
 Das Skript fragt bei jedem Start nach Benutzername/Kennwort (über den normalen
@@ -42,16 +49,30 @@ Festplatte gespeichert.**
 
 ## Aktueller Stand
 
-- **Login funktioniert** (basierend auf den bereitgestellten Screenshots der
-  LOGA-Anmeldeseite: Felder "Kennung"/"Kennwort", Button "ANMELDEN").
-- **Kalender auslesen ist ein bestmöglicher erster Entwurf.** Woher das Skript das
-  genaue Datum eines Urlaubsbalkens nimmt (`title`- oder `data-date`-Attribut), ist
-  noch nicht abschließend bestätigt. Schlägt dieser Schritt fehl, gibt das Skript
-  eine klare Warnung aus statt falsche Daten zu erzeugen.
+- **Login funktioniert** (bestätigt anhand der LOGA-Anmeldeseite: Felder
+  "Kennung"/"Kennwort", Button "ANMELDEN").
+- **Kalender auslesen basiert auf echtem, per "Copy outerHTML" bestätigtem HTML.**
+  LOGA legt das Datum eines Urlaubsbalkens allerdings nicht in einem Attribut ab,
+  sondern ausschließlich über seine Pixel-Position in der Wochenansicht (ein
+  GWT-Kalenderwidget). Das Skript berechnet das Datum daher aus dieser Position
+  relativ zu den 7 Wochentagsspalten. Mit `-Verbose` lässt sich das für jeden
+  gefundenen Eintrag nachvollziehen und gegen das im Browser sichtbare Datum prüfen.
+- **Aktuell wird nur die nach dem Login angezeigte Woche gelesen** (in der Regel die
+  aktuelle Woche) - eine automatische Navigation zu anderen Wochen (für länger
+  zurückliegenden oder weiter in der Zukunft liegenden Urlaub) ist noch nicht
+  eingebaut, da die Selektoren für "nächste/vorherige Woche" noch nicht bekannt sind.
 - **Outlook-Eintrag ist vollständig**: ganztägig, "Abwesend" (`olOutOfOffice`),
   privat, keine Erinnerung, Kategorie "LOGA Urlaub", keine Duplikate bei erneutem
-  Ausführen (über eine versteckte Kennung im Termintext).
+  Ausführen (über LOGAs eigene `data-cache-id` als Kennung im Termintext).
 
-Falls der Kalender-Lese-Schritt bei dir nicht funktioniert: im Browser F12 öffnen,
-auf einen Urlaubsbalken klicken, im Elements-Tab das Element und sein Elternelement
-per Rechtsklick → "Copy" → "Copy outerHTML" kopieren und mir schicken.
+## Bekannte offene Punkte
+
+- **Mehrwöchige Synchronisation**: Damit auch Urlaub in anderen Wochen gefunden wird,
+  braucht es noch die Selektoren für die Wochen-Navigation (Pfeile "vorherige/nächste
+  Woche" bzw. die Datumsauswahl im Kalender-Miniaturbild links). Screenshot/HTML davon
+  hilft weiter.
+- **Genauigkeit der Datumsberechnung**: Die Pixel-Berechnung geht davon aus, dass der
+  Bereich `div.personalWeek-scrollableAlldayEventsArea > div` exakt die volle
+  Montag-bis-Sonntag-Woche in 7 gleich breiten Spalten abbildet. Bitte beim ersten
+  Lauf mit `-WhatIf -Verbose` die ausgegebenen Zeiträume gegen das im Browser
+  sichtbare Datum gegenprüfen.

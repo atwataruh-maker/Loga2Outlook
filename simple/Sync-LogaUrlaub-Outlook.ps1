@@ -22,11 +22,13 @@
     keinerlei Abhaengigkeit dazu.
 
     .NOTES
-    WICHTIG: Der Abschnitt "LOGA-Kalender auslesen" ist aktuell ein bestmoeglicher
-    Entwurf. Die konkreten HTML-Selektoren des Kalenders (welches Element zu welchem
-    Datum gehoert) sind noch nicht abschliessend bestaetigt - siehe Kommentar bei
-    Get-LogaUrlaubsEintraege weiter unten. Mit -WhatIf laesst sich das Skript
-    gefahrlos testen, ohne Outlook-Termine zu veraendern.
+    WICHTIG: Der Abschnitt "LOGA-Kalender auslesen" berechnet das Datum eines Eintrags aus
+    seiner Pixel-Position in der Wochenansicht (siehe Kommentar bei
+    Get-LogaUrlaubsEintraegeDerAngezeigtenWoche weiter unten) - LOGA liefert das Datum nicht
+    als Attribut. Aktuell wird nur die nach dem Login angezeigte Woche gelesen, keine
+    automatische Wochennavigation. Mit -WhatIf laesst sich das Skript gefahrlos testen,
+    ohne Outlook-Termine zu veraendern; die erkannten Zeitraeume werden dabei trotzdem
+    immer angezeigt, damit man sie gegen den Browser pruefen kann.
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -66,8 +68,17 @@ $LogaSelectors = @{
     # Element, das nach erfolgreichem Login sicher sichtbar ist (zur Erfolgspruefung).
     EingeloggtIndikator = "//*[contains(text(),'Kalendarium')]"
 
-    # Der ganztaegige Kalendereintrag laut DevTools-Screenshot.
-    GanztagEintrag = "div.personalWeek-alldayEvent-eventTitle"
+    # Der ganztaegige Kalendereintrag (bestaetigt per "Copy outerHTML"):
+    #   <div class="personalWeek-alldayEvent ..." data-cache-id="..." title="Tarifurlaub" ...
+    #        style="...left: 306px; right: 162px;">
+    #     <div class="personalWeek-alldayEvent-eventTitle">Tarifurlaub</div>
+    #   </div>
+    GanztagEintrag = "div.personalWeek-alldayEvent"
+
+    # Container, dessen Breite die volle 7-Tage-Woche (Montag-Sonntag) abbildet. Die
+    # left/right-Werte der Eintraege sind relativ zu diesem Element zu verstehen (naechster
+    # Vorfahre mit position:relative laut DOM-Struktur). NICHT abschliessend bestaetigt.
+    WochenBreiteContainer = "div.personalWeek-scrollableAlldayEventsArea > div"
 }
 
 # ============================================================================
@@ -142,32 +153,50 @@ function Connect-Loga {
 # ============================================================================
 # 3) LOGA-Kalender auslesen
 #
-#    HINWEIS: Dieser Teil ist noch NICHT vollstaendig bestaetigt. Aus dem Screenshot
-#    wissen wir, dass ganztaegige Eintraege als
-#        <div class="personalWeek-alldayEvent-eventTitle">Tarifurlaub</div>
-#    dargestellt werden - aber nicht, welches Attribut (z. B. title="...", data-date="...")
-#    das zugehoerige Datum enthaelt. Damit hier keine erfundenen Annahmen ins Skript
-#    einfliessen, versucht die Funktion mehrere plausible Quellen der Reihe nach und
-#    bricht mit einer klaren Fehlermeldung ab, wenn keine davon passt - anstatt still
-#    falsche Daten zu liefern.
+#    Bestaetigt per "Copy outerHTML" aus den Browser-DevTools:
+#        <div class="personalWeek-alldayEvent ..." data-cache-id="1e38e3d9..." title="Tarifurlaub"
+#             role="button" aria-label="Tarifurlaub"
+#             style="...; top: 3px; left: 306px; right: 162px;">
+#          <div class="personalWeek-alldayEvent-eventTitle">Tarifurlaub</div>
+#        </div>
 #
-#    Wenn dieser Schritt fehlschlaegt: Bitte im Browser (F12) auf einen Urlaubs-Balken
-#    klicken, im Elements-Tab das Element UND sein direktes Elternelement per
-#    Rechtsklick -> "Copy" -> "Copy outerHTML" kopieren und mir schicken - dann passe
-#    ich exakt diese Funktion an.
+#    WICHTIGE EINSCHRAENKUNG: Dieses LOGA-Kalenderwidget (GWT-basiert, erkennbar an
+#    "gwt-InlineHTML") legt das Datum eines Eintrags NICHT in einem Attribut ab, sondern
+#    ausschliesslich ueber die Pixel-Position (links/rechts) relativ zur sichtbaren
+#    7-Tage-Woche (Montag bis Sonntag). "data-cache-id" ist zwar eine stabile, eindeutige
+#    Kennung fuer Duplikat-Erkennung, enthaelt aber selbst kein Datum.
+#
+#    Diese Funktion berechnet das Datum daher aus der Position: Sie liest die Breite des
+#    Wochen-Containers (siehe $LogaSelectors.WochenBreiteContainer), teilt sie durch 7 und
+#    ordnet jeden Eintrag anhand seiner Position dem entsprechenden Wochentag zu. Das
+#    Ergebnis wird IMMER ausgegeben (auch bei -WhatIf), damit man es gegen die sichtbare
+#    Kalenderwoche pruefen kann, bevor irgendetwas in Outlook geschrieben wird.
+#
+#    $WochenMontag muss das Datum des Montags der Woche sein, die der Browser GERADE
+#    anzeigt (das Skript liest dieses Datum nicht selbst von der Seite ab, sondern
+#    verwendet den Wert, den der Aufrufer via -Von/-Bis bzw. Wochennavigation vorgibt -
+#    siehe Abschnitt 5).
 # ============================================================================
-function Get-LogaUrlaubsEintraege {
+function Get-LogaUrlaubsEintraegeDerAngezeigtenWoche {
     param(
         [Parameter(Mandatory)] $Driver,
-        [Parameter(Mandatory)] [datetime]$Von,
-        [Parameter(Mandatory)] [datetime]$Bis
+        [Parameter(Mandatory)] [datetime]$WochenMontag
     )
+
+    $container = $Driver.FindElement([OpenQA.Selenium.By]::CssSelector($LogaSelectors.WochenBreiteContainer))
+    $containerLinks = $container.Location.X
+    $containerBreite = $container.Size.Width
+    $spaltenBreite = $containerBreite / 7.0
+
+    Write-Verbose ("Wochen-Container: Breite={0}px, Spaltenbreite={1:N1}px, Montag={2:dd.MM.yyyy}" -f $containerBreite, $spaltenBreite, $WochenMontag)
 
     $eintraege = @()
     $elemente = $Driver.FindElements([OpenQA.Selenium.By]::CssSelector($LogaSelectors.GanztagEintrag))
 
     foreach ($el in $elemente) {
-        $text = $el.Text.Trim()
+        $text = $el.GetAttribute("title")
+        if (-not $text) { $text = $el.GetAttribute("aria-label") }
+        if (-not $text) { $text = $el.Text.Trim() }
 
         # Nur Eintraege verarbeiten, deren Text auf Urlaub hindeutet (z. B. "Tarifurlaub",
         # "Erholungsurlaub", "Resturlaub", ...). Andere Abwesenheitsarten (Gleitzeit,
@@ -176,71 +205,34 @@ function Get-LogaUrlaubsEintraege {
             continue
         }
 
-        # Versuch 1: title-Attribut (haeufig bei Tooltips, enthaelt oft das volle Datum).
-        $titleAttr = $el.GetAttribute("title")
+        $relativLinks = $el.Location.X - $containerLinks
+        $relativRechts = $relativLinks + $el.Size.Width
 
-        # Versuch 2: data-date/data-start-Attribute am Element selbst oder am Elternelement.
-        $dataDate = $el.GetAttribute("data-date")
-        if (-not $dataDate) { $dataDate = $el.GetAttribute("data-start") }
-        if (-not $dataDate) {
-            try {
-                $parent = $el.FindElement([OpenQA.Selenium.By]::XPath(".."))
-                $dataDate = $parent.GetAttribute("data-date")
-                if (-not $dataDate) { $dataDate = $parent.GetAttribute("data-start") }
-                if (-not $titleAttr) { $titleAttr = $parent.GetAttribute("title") }
-            }
-            catch {
-                # Kein Elternelement gefunden oder kein Attribut vorhanden - ignorieren,
-                # der naechste Versuch (Fehlermeldung unten) greift dann.
-            }
-        }
+        # +/- 0.1 Spalten Toleranz gegen Rundungsfehler an den Spaltengrenzen.
+        $startTagIndex = [Math]::Floor(($relativLinks / $spaltenBreite) + 0.1)
+        $endTagIndex = [Math]::Ceiling(($relativRechts / $spaltenBreite) - 0.1) - 1
 
-        $gefundenesDatum = $null
-        foreach ($kandidat in @($dataDate, $titleAttr)) {
-            if ($kandidat -match '(\d{1,2})\.(\d{1,2})\.(\d{4})') {
-                $gefundenesDatum = [datetime]::new([int]$Matches[3], [int]$Matches[2], [int]$Matches[1])
-                break
-            }
-            if ($kandidat -match '(\d{4})-(\d{2})-(\d{2})') {
-                $gefundenesDatum = [datetime]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
-                break
-            }
-        }
+        $startTagIndex = [Math]::Max(0, [Math]::Min(6, $startTagIndex))
+        $endTagIndex = [Math]::Max($startTagIndex, [Math]::Min(6, $endTagIndex))
 
-        if (-not $gefundenesDatum) {
-            Write-Warning ("Konnte fuer den Eintrag '{0}' kein Datum aus title/data-Attributen " +
-                "ermitteln. Dieser Eintrag wird uebersprungen. Bitte HTML-Ausschnitt an den " +
-                "Entwickler schicken, damit die Datumserkennung ergaenzt werden kann." -f $text)
-            continue
-        }
+        $start = $WochenMontag.Date.AddDays($startTagIndex)
+        $ende = $WochenMontag.Date.AddDays($endTagIndex)
 
-        if ($gefundenesDatum -lt $Von -or $gefundenesDatum -gt $Bis) {
-            continue
-        }
+        $syncId = $el.GetAttribute("data-cache-id")
+        if (-not $syncId) { $syncId = "geo_$($start.ToString('yyyyMMdd'))_$($ende.ToString('yyyyMMdd'))_$text" }
+
+        Write-Verbose ("Gefunden: '{0}' -> links={1}px rechts={2}px -> Tag {3}-{4} -> {5:dd.MM.yyyy}-{6:dd.MM.yyyy}" -f `
+            $text, $relativLinks, $relativRechts, $startTagIndex, $endTagIndex, $start, $ende)
 
         $eintraege += [pscustomobject]@{
-            Datum       = $gefundenesDatum
+            Start       = $start
+            Ende        = $ende
             Anzeigetext = $text
+            SyncId      = $syncId
         }
     }
 
-    # Aufeinanderfolgende Tage mit demselben Anzeigetext zu einem Zeitraum zusammenfassen.
-    $eintraege = $eintraege | Sort-Object Datum
-    $zeitraeume = @()
-    $aktuell = $null
-
-    foreach ($eintrag in $eintraege) {
-        if ($aktuell -and $eintrag.Datum -eq $aktuell.Ende.AddDays(1) -and $eintrag.Anzeigetext -eq $aktuell.Anzeigetext) {
-            $aktuell.Ende = $eintrag.Datum
-        }
-        else {
-            if ($aktuell) { $zeitraeume += $aktuell }
-            $aktuell = [pscustomobject]@{ Start = $eintrag.Datum; Ende = $eintrag.Datum; Anzeigetext = $eintrag.Anzeigetext }
-        }
-    }
-    if ($aktuell) { $zeitraeume += $aktuell }
-
-    return $zeitraeume
+    return $eintraege
 }
 
 # ============================================================================
@@ -258,8 +250,9 @@ function Sync-OutlookTermine {
     $ergebnis = @{ Angelegt = 0; UnveraendertVorhanden = 0 }
 
     foreach ($zeitraum in $Urlaubszeitraeume) {
-        # Eindeutige, stabile Kennung fuer diesen Zeitraum, um Duplikate zu vermeiden.
-        $syncMarker = "LOGA-SYNC-ID: {0:yyyy-MM-dd}_{1:yyyy-MM-dd}" -f $zeitraum.Start, $zeitraum.Ende
+        # Stabile Kennung fuer diesen Eintrag (data-cache-id aus LOGA, oder ein Ersatzwert),
+        # um bei erneutem Lauf keine Duplikate anzulegen.
+        $syncMarker = "LOGA-SYNC-ID: $($zeitraum.SyncId)"
 
         $vorhandeneTermine = $kalender.Items
         $vorhandeneTermine.IncludeRecurrences = $false
@@ -310,17 +303,25 @@ Write-Host "==> Melde mich bei LOGA an..." -ForegroundColor Cyan
 $driver = Connect-Loga -Credential $credential
 
 try {
-    Write-Host "==> Lese Urlaubseintraege aus dem Kalender..." -ForegroundColor Cyan
-    $von = (Get-Date).Date.AddDays(-$SyncPastDays)
-    $bis = (Get-Date).Date.AddDays($SyncFutureDays)
-    $urlaube = Get-LogaUrlaubsEintraege -Driver $driver -Von $von -Bis $bis
+    # HINWEIS ZUM AKTUELLEN STAND: Die automatische Navigation zwischen Kalenderwochen
+    # (fuer -SyncPastDays/-SyncFutureDays ueber mehrere Wochen hinweg) ist noch nicht
+    # eingebaut, da die Selektoren fuer "naechste/vorherige Woche" noch nicht bestaetigt
+    # sind. Dieses Skript liest daher vorerst NUR die Woche, die der Kalender direkt nach
+    # dem Login anzeigt (i. d. R. die aktuelle Woche). $WochenMontag wird aus dem heutigen
+    # Datum berechnet - falls LOGA nach dem Login eine andere Woche zeigt, bitte melden.
+    Write-Host "==> Lese Urlaubseintraege der aktuell angezeigten Woche..." -ForegroundColor Cyan
+
+    $heute = (Get-Date).Date
+    $wochenMontag = $heute.AddDays(-(([int]$heute.DayOfWeek + 6) % 7))  # Montag dieser Woche
+
+    $urlaube = Get-LogaUrlaubsEintraegeDerAngezeigtenWoche -Driver $driver -WochenMontag $wochenMontag
 
     if ($urlaube.Count -eq 0) {
-        Write-Warning "Keine Urlaubseintraege gefunden. Entweder gibt es aktuell keine, oder die Datumserkennung (siehe Funktion Get-LogaUrlaubsEintraege) muss noch angepasst werden."
+        Write-Warning "Keine Urlaubseintraege in der aktuell angezeigten Woche gefunden."
     }
     else {
-        Write-Host ("==> {0} Urlaubszeitraum/-zeitraeume gefunden:" -f $urlaube.Count) -ForegroundColor Cyan
-        $urlaube | ForEach-Object { Write-Host ("    {0:dd.MM.yyyy} - {1:dd.MM.yyyy}  ({2})" -f $_.Start, $_.Ende, $_.Anzeigetext) }
+        Write-Host ("==> {0} Urlaubszeitraum/-zeitraeume gefunden (bitte gegen das im Browser sichtbare Datum pruefen!):" -f $urlaube.Count) -ForegroundColor Cyan
+        $urlaube | ForEach-Object { Write-Host ("    {0:dd.MM.yyyy} - {1:dd.MM.yyyy}  ({2})  [SyncId: {3}]" -f $_.Start, $_.Ende, $_.Anzeigetext, $_.SyncId) }
     }
 }
 finally {
