@@ -50,6 +50,9 @@ scripts/
   build-portable.ps1
   publish-portable.ps1
 docs/
+.github/
+  workflows/
+    build-portable.yml        baut die portable Version automatisiert über GitHub Actions
 ```
 
 Details zur Architektur und den Design-Entscheidungen siehe [ADMIN-GUIDE.md](ADMIN-GUIDE.md).
@@ -80,6 +83,40 @@ Begleitdateien benötigt (siehe Kommentar im Skript). Die Anwendung erfordert:
 - keine lokal installierte .NET-Laufzeit (self-contained),
 - weder Visual Studio noch ein .NET SDK auf dem Zielrechner,
 - keine Python-Installation.
+
+## Portable Version über GitHub Actions bauen
+
+Wer keinen Windows-Rechner mit .NET 8 SDK zur Hand hat, kann die portable Version stattdessen
+automatisiert über GitHub Actions bauen lassen:
+
+1. Das Repository auf GitHub öffnen.
+2. Den Bereich **Actions** öffnen.
+3. Den Workflow **"Portable Windows App bauen"** auswählen.
+4. **"Run workflow"** anklicken.
+5. Nach erfolgreichem Lauf das Artefakt **`Loga2Outlook-win-x64`** herunterladen.
+6. Die heruntergeladene ZIP-Datei vollständig entpacken.
+7. `LogaOutlookSync.exe` im entpackten Ordner starten.
+
+Hinweise:
+
+- Auf dem Zielrechner ist **keine .NET-Installation** nötig - der Workflow baut die Anwendung
+  self-contained.
+- Es sind **keine Administratorrechte** nötig, weder für den Workflow-Lauf noch für die
+  anschließende Ausführung der entpackten Anwendung.
+- Der **gesamte entpackte Ordner muss zusammenbleiben** (u. a. der `.playwright`-Unterordner
+  mit dem Playwright-Treiber sowie alle DLLs) - nicht nur `LogaOutlookSync.exe` verschieben.
+- Die **Outlook-COM-Anbindung funktioniert nur mit Outlook Classic** (Desktop), nicht mit dem
+  neuen Outlook oder rein browserbasiertem Outlook im Web.
+- Die konkreten **LOGA-Selektoren müssen weiterhin separat konfiguriert werden** (siehe
+  [ADMIN-GUIDE.md](ADMIN-GUIDE.md), Abschnitt "LOGA-Selektoren ermitteln") - der Workflow baut
+  nur die Anwendung, er kennt die LOGA-Seitenstruktur nicht.
+
+Der Workflow (`.github/workflows/build-portable.yml`) ruft ausschließlich das vorhandene
+`scripts/publish-portable.ps1` auf - es gibt keine zusätzliche, parallele Build-Logik. Er
+führt dabei automatisch auch die Unit- und Integrationstests aus (über
+`scripts/build-portable.ps1`, das von `publish-portable.ps1` aufgerufen wird) und schlägt
+fehl, wenn Tests fehlschlagen oder `artifacts/portable/LogaOutlookSync.exe` nach dem Build
+nicht existiert.
 
 ## Erstinbetriebnahme
 

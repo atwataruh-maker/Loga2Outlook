@@ -1,0 +1,53 @@
+name: Portable Windows App bauen
+
+on:
+  workflow_dispatch: {}
+  push:
+    # Aktueller Haupt-/Default-Branch dieses Repositories. Sobald ein konventioneller
+    # "main"-Branch angelegt wird, hier entsprechend anpassen bzw. ergaenzen.
+    branches:
+      - claude/loga-outlook-sync-drxkyj
+
+permissions:
+  contents: read
+
+jobs:
+  build-portable:
+    name: Portable Windows-Anwendung bauen
+    runs-on: windows-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: .NET 8 SDK einrichten
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Portable Veroeffentlichung erstellen
+        shell: pwsh
+        # Nutzt ausschliesslich das vorhandene Publish-Skript. Dieses ruft seinerseits
+        # build-portable.ps1 auf, welches restore, build sowie die Unit- und
+        # Integrationstests ausfuehrt, bevor veroeffentlicht wird. Schlaegt einer dieser
+        # Schritte fehl, bricht das Skript mit einer Exception ab und der Workflow-Schritt
+        # schlaegt entsprechend fehl.
+        run: ./scripts/publish-portable.ps1
+
+      - name: Pruefen, dass die portable EXE existiert
+        shell: pwsh
+        run: |
+          $exePath = "artifacts/portable/LogaOutlookSync.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Erwartete Datei wurde nicht gefunden: $exePath"
+            exit 1
+          }
+          Write-Host "Gefunden: $exePath"
+
+      - name: Portablen Ordner als Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Loga2Outlook-win-x64
+          path: artifacts/portable/
+          if-no-files-found: error
+          retention-days: 14
