@@ -1,0 +1,20 @@
+{
+  "_readme": "WICHTIG: Alle Werte in diesem Beispiel sind Platzhalter und NICHT verifiziert. loginPageUrl ist bereits mit der vom Benutzer genannten Adresse vorbelegt, die Navigationsschritte danach müssen im sichtbaren Debug-/Analysemodus ermittelt werden. Kopieren Sie diese Datei nach %LOCALAPPDATA%\\LogaOutlookSync\\Config\\loga-navigation.json.",
+
+  "loginPageUrl": "https://dedalus.pi-asp.de/loga3/private/layout?action=afterlogin",
+
+  "stepsAfterLogin": [
+    {
+      "description": "Persönlichen Kalender öffnen",
+      "action": "Click",
+      "selector": "TODO: z. B. text=Kalender oder [aria-label='Mein Kalender']",
+      "timeoutMs": 15000
+    },
+    {
+      "description": "Warten bis Kalenderansicht geladen ist",
+      "action": "WaitForSelector",
+      "selector": "TODO: Selektor, der eindeutig die geladene Kalenderansicht kennzeichnet",
+      "timeoutMs": 15000
+    }
+  ]
+}

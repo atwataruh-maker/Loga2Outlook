@@ -1,0 +1,44 @@
+{
+  "_readme": "WICHTIG: Alle Werte in diesem Beispiel sind Platzhalter und NICHT verifiziert. Sie wurden bewusst nicht erfunden, sondern müssen nach Untersuchung der echten LOGA-Seite (https://dedalus.pi-asp.de/loga3/...) im sichtbaren Debug-/Analysemodus ermittelt werden. Kopieren Sie diese Datei nach %LOCALAPPDATA%\\LogaOutlookSync\\Config\\loga-selectors.json und tragen Sie dort die tatsächlichen Selektoren ein. Bevorzugen Sie stabile IDs, ARIA-Rollen, Labels oder sichtbare Texte gegenüber CSS-Klassen. Absolute XPath-Ausdrücke sind nicht zulässig.",
+
+  "login": {
+    "_readme": "Selektoren für Playwright (CSS, ARIA-Rolle oder Text), angewendet auf die live geladene Login-Seite.",
+    "usernameField": "TODO: z. B. #username oder input[name='j_username']",
+    "passwordField": "TODO: z. B. #password oder input[name='j_password']",
+    "submitButton": "TODO: z. B. button[type='submit'] oder text=Anmelden",
+    "errorMessage": "TODO: Selektor der Fehlermeldung nach fehlgeschlagenem Login, z. B. .login-error",
+    "mfaChallengeIndicator": "TODO: Selektor, der auf eine MFA-Abfrage hindeutet, sofern LOGA MFA unterstützt",
+    "loggedInIndicator": "TODO: Selektor, der nach erfolgreichem Login sicher sichtbar ist, z. B. das Benutzermenü"
+  },
+
+  "calendarParsing": {
+    "_readme": "Selektoren zur Auswertung des mit page.ContentAsync() eingesammelten HTML-Snapshots des persönlichen Kalenders. Werden per CSS-Selektor (AngleSharp) ausgewertet, EntryContainer und alle weiteren Selektoren sind relativ zum jeweiligen Eintrags-Element zu verstehen.",
+    "entryContainer": "TODO: Selektor je einzelnem Kalendereintrag, z. B. .calendar-entry oder [data-entry-type]",
+    "sourceIdAttribute": "TODO (optional): Name eines Attributs mit eindeutiger LOGA-ID, z. B. data-entry-id",
+    "dateRange": "TODO: Selektor für den Datumsbereichstext, z. B. .entry-date-range",
+    "timeRange": "TODO (optional): Selektor für Uhrzeitbereich bei stundenweiser Gleitzeit",
+    "type": "TODO: Selektor für den Text, aus dem die Abwesenheitsart abgeleitet wird",
+    "status": "TODO (optional): Selektor für den Genehmigungsstatus-Text",
+    "displayText": "TODO (optional): Selektor für einen Anzeigetext; Fallback ist der gesamte Text des Eintrags",
+    "dateFormat": "dd.MM.yyyy",
+    "timeFormat": "HH:mm",
+    "rangeSeparator": " - ",
+    "cultureName": "de-DE",
+    "typeTextMapping": {
+      "Urlaub": "Vacation",
+      "Gleitzeit": "FlexTime",
+      "Krankheit": "Sickness",
+      "Dienstreise": "BusinessTrip",
+      "Fortbildung": "Training",
+      "Homeoffice": "HomeOffice",
+      "Rufbereitschaft": "OnCallDuty",
+      "Zeitausgleich": "TimeOffInLieu"
+    },
+    "statusTextMapping": {
+      "genehmigt": "Approved",
+      "beantragt": "Pending",
+      "abgelehnt": "Rejected",
+      "storniert": "Cancelled"
+    }
+  }
+}
