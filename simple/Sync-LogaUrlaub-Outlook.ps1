@@ -22,12 +22,18 @@
     keinerlei Abhaengigkeit dazu.
 
     .NOTES
-    Der Abschnitt "LOGA-Kalender auslesen" klickt jeden Urlaubsbalken einzeln an - das
-    oeffnet ein Popup mit den exakten Feldern "Anfangsdatum"/"Endedatum" (siehe Kommentar
-    bei Get-LogaUrlaubsEintraege weiter unten). Aktuell wird nur die nach dem Login
-    angezeigte Woche gelesen, keine automatische Wochennavigation. Mit -WhatIf laesst
-    sich das Skript gefahrlos testen, ohne Outlook-Termine zu veraendern; die erkannten
-    Zeitraeume werden dabei trotzdem immer angezeigt.
+    LOGA bietet ein Widget "Urlaubsuebersicht" (per Drag-and-Drop aus dem Werkzeug-Menue
+    in den Kalenderbereich gezogen), das nach Auswahl von "Urlaub" im dortigen Dropdown
+    eine einfache Tabelle mit ALLEN Urlaubszeitraeumen des Jahres zeigt (Datum, Status
+    "Genommen"/"Genehmigt", Tage) - viel zuverlaessiger als einzelne Kalenderbalken
+    anzuklicken oder Positionen zu berechnen. Da dieses Widget nicht dauerhaft im
+    Kalender verbleibt (jedes Mal neu per Drag-and-Drop noetig) und Drag-and-Drop sich
+    per Selenium nicht zuverlaessig automatisieren laesst, pausiert das Skript kurz und
+    bittet um diesen einen manuellen Schritt (siehe Abschnitt 5) - danach liest es die
+    Tabelle vollautomatisch aus. Erfordert daher IMMER einen sichtbaren Browser
+    (-Headless kann hier nicht verwendet werden). Mit -WhatIf laesst sich das Skript
+    gefahrlos testen, ohne Outlook-Termine zu veraendern; die erkannten Zeitraeume
+    werden dabei trotzdem immer angezeigt.
 #>
 
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -45,17 +51,15 @@ param(
     [string]$Kategorie = "LOGA Urlaub",
 
     # Pfad zu msedgedriver.exe, falls nicht im selben Ordner wie dieses Skript.
-    [string]$EdgeDriverPath = (Join-Path $PSScriptRoot "msedgedriver.exe"),
-
-    # Browserfenster sichtbar lassen (empfohlen fuer die ersten Laeufe / zur Kontrolle).
-    [switch]$Headless
+    [string]$EdgeDriverPath = (Join-Path $PSScriptRoot "msedgedriver.exe")
 )
 
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
 # 1) LOGA-Selektoren (zentral an einer Stelle, keine Verteilung im Code)
-#    Basierend auf den bereitgestellten Screenshots des Anmeldeformulars.
+#    Basierend auf den bereitgestellten Screenshots des Anmeldeformulars und der
+#    Urlaubsuebersicht-Tabelle.
 # ============================================================================
 $LogaSelectors = @{
     # Relative XPath-Ausdruecke (kein absoluter Pfad), gestuetzt auf die sichtbaren
@@ -67,18 +71,12 @@ $LogaSelectors = @{
     # Element, das nach erfolgreichem Login sicher sichtbar ist (zur Erfolgspruefung).
     EingeloggtIndikator = "//*[contains(text(),'Kalendarium')]"
 
-    # Der ganztaegige Kalendereintrag (bestaetigt per "Copy outerHTML"):
-    #   <div class="personalWeek-alldayEvent ..." data-cache-id="..." title="Tarifurlaub" ...>
-    #     <div class="personalWeek-alldayEvent-eventTitle">Tarifurlaub</div>
-    #   </div>
-    GanztagEintrag = "div.personalWeek-alldayEvent"
+    # Ankertext im Titel des manuell geoeffneten Urlaubsuebersicht-Popups.
+    UrlaubsuebersichtTitel = "//*[contains(text(),'Urlaubsübersicht')]"
 
-    # Ein Klick auf den Eintrag oeffnet ein Popup mit "Anfangsdatum"/"Endedatum". Bestaetigt
-    # per DevTools: <input name="vacationHalfDayServerMaskPart-startDate" ... value="23.07.2026">
-    # Ueber "endet mit" (-startDate/-endDate) statt des vollen Namens, falls der Praefix bei
-    # anderen Abwesenheitsarten abweicht.
-    PopupAnfangsdatum = "input[name`$='-startDate']"
-    PopupEndedatum    = "input[name`$='-endDate']"
+    # Umschliessender Popup-Container (dieselbe Wrapper-Klasse wie beim Datums-Popup
+    # eines einzelnen Kalendereintrags - NICHT fuer dieses Popup einzeln bestaetigt).
+    PopupContainerKlasse = "popupContent"
 }
 
 # ============================================================================
@@ -117,10 +115,9 @@ function Connect-Loga {
 
     Import-Module Selenium -ErrorAction Stop
 
+    # Immer sichtbar: der Benutzer muss die Urlaubsuebersicht manuell per
+    # Drag-and-Drop oeffnen (siehe Abschnitt 5), das erfordert ein sichtbares Fenster.
     $edgeOptions = New-Object OpenQA.Selenium.Edge.EdgeOptions
-    if ($Headless) {
-        $edgeOptions.AddArgument("--headless=new")
-    }
 
     if (-not (Test-Path $EdgeDriverPath)) {
         throw "msedgedriver.exe wurde unter '$EdgeDriverPath' nicht gefunden. " +
@@ -152,92 +149,80 @@ function Connect-Loga {
 }
 
 # ============================================================================
-# 3) LOGA-Kalender auslesen
+# 3) Urlaubsuebersicht auslesen
 #
-#    Bestaetigt per "Copy outerHTML" aus den Browser-DevTools:
-#        <div class="personalWeek-alldayEvent ..." data-cache-id="1e38e3d9..." title="Tarifurlaub"
-#             role="button" aria-label="Tarifurlaub" ...>
-#          <div class="personalWeek-alldayEvent-eventTitle">Tarifurlaub</div>
-#        </div>
+#    Setzt voraus, dass der Benutzer die Urlaubsuebersicht-Tabelle bereits manuell
+#    geoeffnet hat (Werkzeug-Symbol -> "Urlaubsuebersicht" in den Kalenderbereich
+#    ziehen -> im Popup "Urlaub" im Dropdown auswaehlen). Siehe Abschnitt 5.
 #
-#    Ein Klick auf diesen Balken oeffnet ein Popup mit exaktem "Anfangsdatum"/"Endedatum"
-#    (bestaetigt per Screenshot: Eingabefeld mit
-#    name="vacationHalfDayServerMaskPart-startDate", Wert "23.07.2026"). Das ist die
-#    zuverlaessigste Datenquelle, die wir bisher kennen - kein Rechnen mit Pixel-Positionen
-#    noetig. Ablauf pro Eintrag: anklicken, Popup abwarten, beide Datumsfelder auslesen,
-#    Popup mit ESC wieder schliessen, weiter zum naechsten Eintrag.
+#    Bestaetigt per DevTools-Screenshot enthaelt jede Datenzeile Zellen mit den
+#    stabilen Klassen "LG-InputLabel Cell Von" (Startdatum, z. B. "05.02."),
+#    "LG-InputLabel Cell Bis" (Enddatum) und "LG-InputLabel Cell Text" (Status,
+#    z. B. "Genommen"/"Genehmigt"). Die zusaetzlich sichtbaren id="LGLabel203" o. Ae.
+#    sind vermutlich bei jedem Rendern neu vergeben und werden bewusst NICHT verwendet.
 #
-#    Alle Attribute des Balkens selbst (Text, data-cache-id) werden VOR dem Klick
-#    ausgelesen, weil GWT nach dem Klick Teile der Seite neu rendern kann und das
-#    urspruengliche Element-Objekt dann ungueltig (stale) werden koennte.
+#    Statt jede Zelle einzeln per Selektor abzufragen (fehleranfaellig, falls sich die
+#    genaue Tabellenverschachtelung unterscheidet), wird der gesamte sichtbare Text des
+#    Popups gelesen und zeilenuebergreifend per regulaerem Ausdruck geparst - das ist
+#    robuster gegenueber kleineren Strukturunterschieden. Muster pro Datenzeile:
+#    "05.02. - 06.02.  Genommen   2.00". Das Jahr steht nicht in jeder Zeile, sondern
+#    einmal pro Jahresblock (z. B. "2026 Resturlaub Vorjahr ..."); jedem Datumseintrag
+#    wird daher das zuletzt zuvor im Text vorkommende 4-stellige Jahr zugeordnet.
 # ============================================================================
-function Get-LogaUrlaubsEintraege {
+function Get-LogaUrlaubsuebersicht {
     param(
         [Parameter(Mandatory)] $Driver
     )
 
-    $balken = $Driver.FindElements([OpenQA.Selenium.By]::CssSelector($LogaSelectors.GanztagEintrag))
+    $titelElement = Wait-SeElement -Driver $Driver -By ([OpenQA.Selenium.By]::XPath($LogaSelectors.UrlaubsuebersichtTitel)) -TimeoutSeconds 120
+    $popup = $titelElement.FindElement([OpenQA.Selenium.By]::XPath("ancestor::div[contains(@class,'$($LogaSelectors.PopupContainerKlasse)')][1]"))
 
-    $kandidaten = @()
-    foreach ($el in $balken) {
-        $text = $el.GetAttribute("title")
-        if (-not $text) { $text = $el.GetAttribute("aria-label") }
-        if (-not $text) { $text = $el.Text.Trim() }
+    $text = $popup.Text
+    Write-Verbose "----- Text der Urlaubsuebersicht (zur Kontrolle) -----"
+    Write-Verbose $text
+    Write-Verbose "-------------------------------------------------------"
 
-        # Nur Eintraege verarbeiten, deren Text auf Urlaub hindeutet (z. B. "Tarifurlaub",
-        # "Erholungsurlaub", "Resturlaub", ...). Andere Abwesenheitsarten (Gleitzeit,
-        # Krankheit, ...) werden bewusst ignoriert, wie vom Benutzer gewuenscht.
-        if ($text -notmatch '(?i)urlaub') {
-            continue
-        }
+    $jahrTreffer = [regex]::Matches($text, '\b(20\d{2})\b')
+    $zeilenTreffer = [regex]::Matches(
+        $text,
+        '(?<start>\d{2}\.\d{2})\.\s*-\s*(?<ende>\d{2}\.\d{2})\.\s*(?<status>Genommen|Genehmigt)\s*(?<tage>[\d.,]+)'
+    )
 
-        $kandidaten += [pscustomobject]@{
-            Element = $el
-            Text    = $text
-            SyncId  = $el.GetAttribute("data-cache-id")
-        }
+    if ($zeilenTreffer.Count -eq 0) {
+        Write-Warning ("Es konnten keine Urlaubszeilen im Popup-Text erkannt werden. Bitte pruefen, " +
+            "ob im Dropdown des Popups tatsaechlich 'Urlaub' ausgewaehlt ist. Mit -Verbose wird der " +
+            "gelesene Text oben angezeigt.")
     }
 
-    Write-Verbose ("{0} Urlaubsbalken in der aktuell sichtbaren Ansicht gefunden." -f $kandidaten.Count)
-
     $eintraege = @()
-    foreach ($kandidat in $kandidaten) {
-        try {
-            $kandidat.Element.Click()
-
-            $startFeld = Wait-SeElement -Driver $Driver -By ([OpenQA.Selenium.By]::CssSelector($LogaSelectors.PopupAnfangsdatum)) -TimeoutSeconds 10
-            $endeFeld = $Driver.FindElement([OpenQA.Selenium.By]::CssSelector($LogaSelectors.PopupEndedatum))
-
-            $startText = $startFeld.GetAttribute("value")
-            $endeText = $endeFeld.GetAttribute("value")
-
-            $start = [datetime]::ParseExact($startText, "dd.MM.yyyy", [System.Globalization.CultureInfo]::InvariantCulture)
-            $ende = [datetime]::ParseExact($endeText, "dd.MM.yyyy", [System.Globalization.CultureInfo]::InvariantCulture)
-
-            $syncId = $kandidat.SyncId
-            if (-not $syncId) { $syncId = "fallback_$($start.ToString('yyyyMMdd'))_$($ende.ToString('yyyyMMdd'))_$($kandidat.Text)" }
-
-            Write-Verbose ("Gefunden: '{0}' -> {1:dd.MM.yyyy} - {2:dd.MM.yyyy} (SyncId: {3})" -f $kandidat.Text, $start, $ende, $syncId)
-
-            $eintraege += [pscustomobject]@{
-                Start       = $start
-                Ende        = $ende
-                Anzeigetext = $kandidat.Text
-                SyncId      = $syncId
-            }
+    foreach ($treffer in $zeilenTreffer) {
+        $jahrMatch = $jahrTreffer | Where-Object { $_.Index -le $treffer.Index } | Select-Object -Last 1
+        if (-not $jahrMatch) {
+            Write-Warning ("Kein Jahr fuer den Eintrag '{0}' gefunden - wird uebersprungen." -f $treffer.Value)
+            continue
         }
-        catch {
-            Write-Warning ("Eintrag '{0}' konnte nicht ausgelesen werden: {1}" -f $kandidat.Text, $_.Exception.Message)
+        $jahr = [int]$jahrMatch.Value
+
+        $startTeile = $treffer.Groups['start'].Value -split '\.'
+        $endeTeile = $treffer.Groups['ende'].Value -split '\.'
+
+        $start = [datetime]::new($jahr, [int]$startTeile[1], [int]$startTeile[0])
+        $ende = [datetime]::new($jahr, [int]$endeTeile[1], [int]$endeTeile[0])
+        if ($ende -lt $start) {
+            # Zeitraum ueber den Jahreswechsel hinweg (z. B. 29.12. - 02.01.).
+            $ende = $ende.AddYears(1)
         }
-        finally {
-            # Popup wieder schliessen, bevor der naechste Eintrag angeklickt wird.
-            try {
-                $Driver.FindElement([OpenQA.Selenium.By]::TagName("body")).SendKeys([OpenQA.Selenium.Keys]::Escape)
-                Start-Sleep -Milliseconds 300
-            }
-            catch {
-                # Popup war vermutlich schon geschlossen - ignorieren.
-            }
+
+        $syncId = "urlaubsuebersicht_$($start.ToString('yyyyMMdd'))_$($ende.ToString('yyyyMMdd'))"
+
+        Write-Verbose ("Gefunden: {0:dd.MM.yyyy} - {1:dd.MM.yyyy}  {2}  ({3} Tage)  [SyncId: {4}]" -f `
+            $start, $ende, $treffer.Groups['status'].Value, $treffer.Groups['tage'].Value, $syncId)
+
+        $eintraege += [pscustomobject]@{
+            Start       = $start
+            Ende        = $ende
+            Anzeigetext = "Urlaub ($($treffer.Groups['status'].Value))"
+            SyncId      = $syncId
         }
     }
 
@@ -312,20 +297,30 @@ Write-Host "==> Melde mich bei LOGA an..." -ForegroundColor Cyan
 $driver = Connect-Loga -Credential $credential
 
 try {
-    # HINWEIS ZUM AKTUELLEN STAND: Die automatische Navigation zwischen Kalenderwochen
-    # (fuer -SyncPastDays/-SyncFutureDays ueber mehrere Wochen hinweg) ist noch nicht
-    # eingebaut, da die Selektoren fuer "naechste/vorherige Woche" noch nicht bestaetigt
-    # sind. Dieses Skript liest daher vorerst NUR die Woche, die der Kalender direkt nach
-    # dem Login anzeigt (i. d. R. die aktuelle Woche).
-    Write-Host "==> Lese Urlaubseintraege der aktuell angezeigten Woche..." -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "==> Manueller Zwischenschritt erforderlich:" -ForegroundColor Yellow
+    Write-Host "    1. Im Browser das Werkzeug-Symbol unten rechts anklicken." -ForegroundColor Yellow
+    Write-Host "    2. 'Urlaubsuebersicht' in den Kalender-Wochenbereich ziehen." -ForegroundColor Yellow
+    Write-Host "    3. Im sich oeffnenden Popup im Dropdown 'Urlaub' auswaehlen." -ForegroundColor Yellow
+    Write-Host ""
+    Read-Host "    Wenn die Tabelle mit den Urlaubszeitraeumen sichtbar ist, hier Enter druecken" | Out-Null
 
-    $urlaube = Get-LogaUrlaubsEintraege -Driver $driver
+    Write-Host "==> Lese Urlaubsuebersicht..." -ForegroundColor Cyan
+    # @(...) erzwingt ein Array, auch wenn 0 oder 1 Eintraege gefunden werden - PowerShell
+    # wandelt eine leere Ergebnismenge sonst stillschweigend in $null um, was .Count
+    # unzuverlaessig machen wuerde.
+    $alleUrlaube = @(Get-LogaUrlaubsuebersicht -Driver $driver)
+
+    $von = (Get-Date).Date.AddDays(-$SyncPastDays)
+    $bis = (Get-Date).Date.AddDays($SyncFutureDays)
+    $urlaube = @($alleUrlaube | Where-Object { $_.Ende -ge $von -and $_.Start -le $bis })
 
     if ($urlaube.Count -eq 0) {
-        Write-Warning "Keine Urlaubseintraege in der aktuell angezeigten Woche gefunden."
+        Write-Warning "Keine Urlaubszeitraeume im konfigurierten Synchronisationszeitraum gefunden."
     }
     else {
-        Write-Host ("==> {0} Urlaubszeitraum/-zeitraeume gefunden:" -f $urlaube.Count) -ForegroundColor Cyan
+        Write-Host ("==> {0} von {1} gefundenen Urlaubszeitraeumen liegen im Synchronisationszeitraum ({2:dd.MM.yyyy} - {3:dd.MM.yyyy}):" -f `
+            $urlaube.Count, $alleUrlaube.Count, $von, $bis) -ForegroundColor Cyan
         $urlaube | ForEach-Object { Write-Host ("    {0:dd.MM.yyyy} - {1:dd.MM.yyyy}  ({2})  [SyncId: {3}]" -f $_.Start, $_.Ende, $_.Anzeigetext, $_.SyncId) }
     }
 }
