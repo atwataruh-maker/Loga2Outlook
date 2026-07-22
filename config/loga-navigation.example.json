@@ -1,7 +1,5 @@
 {
-  "_readme": "WICHTIG: Alle Werte in diesem Beispiel sind Platzhalter und NICHT verifiziert. loginPageUrl ist bereits mit der vom Benutzer genannten Adresse vorbelegt, die Navigationsschritte danach müssen im sichtbaren Debug-/Analysemodus ermittelt werden. Kopieren Sie diese Datei nach %LOCALAPPDATA%\\LogaOutlookSync\\Config\\loga-navigation.json.",
-
-  "loginPageUrl": "https://dedalus.pi-asp.de/loga3/private/layout?action=afterlogin",
+  "_readme": "WICHTIG: Alle Werte in diesem Beispiel sind Platzhalter und NICHT verifiziert und müssen im sichtbaren Debug-/Analysemodus ermittelt werden. Die aufzurufende LOGA-Adresse selbst wird NICHT hier, sondern als 'LOGA-Webadresse' im Einrichtungsassistenten der Anwendung eingestellt. Kopieren Sie diese Datei nach %LOCALAPPDATA%\\LogaOutlookSync\\Config\\loga-navigation.json.",
 
   "stepsAfterLogin": [
     {

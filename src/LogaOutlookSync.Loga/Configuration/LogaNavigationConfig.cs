@@ -3,12 +3,12 @@ namespace LogaOutlookSync.Loga.Configuration;
 /// <summary>
 /// Zentrale, LOGA-spezifische Navigationskonfiguration. Wird aus <c>loga-navigation.json</c>
 /// geladen. Beschreibt, wie die Anwendung nach dem Login zum persönlichen Kalender navigiert.
+/// Die aufzurufende LOGA-Adresse selbst wird bewusst nicht hier, sondern als
+/// "LOGA-Webadresse" im Einrichtungsassistenten verwaltet (<c>AppSettings.LogaBaseUrl</c>),
+/// damit es nur eine Stelle für diesen Wert gibt.
 /// </summary>
 public sealed class LogaNavigationConfig
 {
-    /// <summary>Aufzurufende URL der LOGA-Login-/Startseite.</summary>
-    public string LoginPageUrl { get; set; } = string.Empty;
-
     /// <summary>Geordnete Liste der Navigationsschritte nach erfolgreichem Login bis zum persönlichen Kalender.</summary>
     public List<NavigationStep> StepsAfterLogin { get; set; } = new();
 }

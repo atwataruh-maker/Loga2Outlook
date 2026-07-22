@@ -63,15 +63,7 @@ public sealed class LogaSelectorsProvider
 
     public LogaNavigationConfig LoadNavigation()
     {
-        var config = LoadJson<LogaNavigationConfig>(_navigationFilePath, "Navigations");
-
-        if (string.IsNullOrWhiteSpace(config.LoginPageUrl))
-        {
-            throw new LogaConfigurationException(
-                $"Die Navigationskonfiguration in '{_navigationFilePath}' enthält keine LoginPageUrl.");
-        }
-
-        return config;
+        return LoadJson<LogaNavigationConfig>(_navigationFilePath, "Navigations");
     }
 
     private T LoadJson<T>(string filePath, string configLabel) where T : new()

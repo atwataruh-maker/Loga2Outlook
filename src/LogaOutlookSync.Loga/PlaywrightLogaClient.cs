@@ -43,7 +43,7 @@ public sealed class PlaywrightLogaClient : ILogaClient
 
         return await RunSessionAsync(async page =>
         {
-            await LoginAsync(page, selectors.Login, navigation, credential, cancellationToken).ConfigureAwait(false);
+            await LoginAsync(page, selectors.Login, credential, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("LOGA-Anmeldung erfolgreich.");
 
             await RunNavigationStepsAsync(page, navigation.StepsAfterLogin, cancellationToken).ConfigureAwait(false);
@@ -83,12 +83,11 @@ public sealed class PlaywrightLogaClient : ILogaClient
         try
         {
             var selectors = _selectorsProvider.LoadSelectors();
-            var navigation = _selectorsProvider.LoadNavigation();
             var credential = await LoadRequiredCredentialAsync(cancellationToken).ConfigureAwait(false);
 
             await RunSessionAsync(async page =>
             {
-                await LoginAsync(page, selectors.Login, navigation, credential, cancellationToken).ConfigureAwait(false);
+                await LoginAsync(page, selectors.Login, credential, cancellationToken).ConfigureAwait(false);
                 return true;
             }, cancellationToken).ConfigureAwait(false);
 
@@ -117,19 +116,18 @@ public sealed class PlaywrightLogaClient : ILogaClient
     private async Task LoginAsync(
         IPage page,
         LoginSelectors login,
-        LogaNavigationConfig navigation,
         StoredCredential credential,
         CancellationToken cancellationToken)
     {
         try
         {
-            await page.GotoAsync(navigation.LoginPageUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle })
+            await page.GotoAsync(_settings.LogaBaseUrl, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle })
                 .ConfigureAwait(false);
         }
         catch (PlaywrightException ex)
         {
             throw new LogaConnectivityException(
-                $"Die LOGA-Adresse '{navigation.LoginPageUrl}' konnte nicht geöffnet werden. " +
+                $"Die LOGA-Adresse '{_settings.LogaBaseUrl}' konnte nicht geöffnet werden. " +
                 "Bitte prüfen Sie die Internetverbindung und ob LOGA erreichbar ist.",
                 ex);
         }
