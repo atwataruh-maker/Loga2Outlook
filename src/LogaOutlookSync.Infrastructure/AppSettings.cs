@@ -26,6 +26,20 @@ public sealed record AppSettings
     /// </summary>
     public string? TargetCalendarId { get; init; }
 
+    /// <summary>
+    /// Entra-ID-Anwendungs-ID (Client-ID) einer eigenen App-Registrierung, erforderlich für
+    /// Microsoft Graph. Nicht geheim (Public-Client), siehe docs/GRAPH-SETUP.md. Ist dieser Wert
+    /// leer, kann Microsoft Graph nicht verwendet werden und die Anwendung nutzt im Modus
+    /// "Automatisch" den Outlook-COM-Fallback.
+    /// </summary>
+    public string? GraphClientId { get; init; }
+
+    /// <summary>
+    /// Entra-ID-Mandant für die Authentifizierung: eine Tenant-ID/-Domäne, oder "organizations"
+    /// (Standard, beliebiger Geschäfts-/Schulmandant) bzw. "common".
+    /// </summary>
+    public string GraphTenantId { get; init; } = "organizations";
+
     /// <summary>Browser sichtbar (Debug-Modus) oder unsichtbar (Headless) betreiben.</summary>
     public bool BrowserVisible { get; init; } = true;
 
